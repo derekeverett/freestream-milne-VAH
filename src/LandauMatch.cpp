@@ -410,7 +410,7 @@ void calculateWmu(float **stressTensor, float **flowVelocity, float **Zmu, float
     float u_y = -flowVelocity[2][is];
     float u_n = -tau2*flowVelocity[3][is];
     float Z_t = Zmu[0][is];
-    float Z_n = -tau2*Zmu[0][is];
+    float Z_n = -tau2*Zmu[3][is];
     float delta_tt = 1 - u_t*u_t + Z_t*Z_t;
     float delta_tx = -u_t*u_x;
     float delta_ty = -u_t*u_y;
@@ -475,7 +475,7 @@ void calculateResidualBulk(float **stressTensor, float **flowVelocity, float **Z
     float u_y = -flowVelocity[2][is];
     float u_n = -tau2*flowVelocity[3][is];
     float Z_t = Zmu[0][is];
-    float Z_n = -tau2*Zmu[0][is];
+    float Z_n = -tau2*Zmu[3][is];
     float delta_tt = 1 - u_t*u_t + Z_t*Z_t;
     float delta_tx = -u_t*u_x;
     float delta_ty = -u_t*u_y;
@@ -519,7 +519,7 @@ void calculateResidualShear(float **stressTensor, float *energyDensity, float **
     float u_y = flowVelocity[2][is];
     float u_n = flowVelocity[3][is];
     float Z_t = Zmu[0][is];
-    float Z_n = Zmu[0][is];
+    float Z_n = Zmu[3][is];
     float delta_tt = 1 - u_t*u_t + Z_t*Z_t;
     float delta_tx = -u_t*u_x;
     float delta_ty = -u_t*u_y;
@@ -531,16 +531,16 @@ void calculateResidualShear(float **stressTensor, float *energyDensity, float **
     float delta_yn = -u_y*u_n;
     float delta_nn = (-1.0/tau2) - u_n*u_n + Z_n*Z_n;
 
-    residualShear[0][is] = stressTensor[0][is] + P_T[is]*delta_tt - P_L[is]*Zmu[0][is]*Zmu[0][is] - (Wmu[0][is]*Zmu[0][is] + Wmu[0][is]*Zmu[0][is]);
-    residualShear[1][is] = stressTensor[1][is] + P_T[is]*delta_tx - P_L[is]*Zmu[0][is]*Zmu[1][is] - (Wmu[0][is]*Zmu[1][is] + Wmu[1][is]*Zmu[0][is]);
-    residualShear[2][is] = stressTensor[2][is] + P_T[is]*delta_ty - P_L[is]*Zmu[0][is]*Zmu[2][is] - (Wmu[0][is]*Zmu[2][is] + Wmu[2][is]*Zmu[0][is]);
-    residualShear[3][is] = stressTensor[3][is] + P_T[is]*delta_tn - P_L[is]*Zmu[0][is]*Zmu[3][is] - (Wmu[0][is]*Zmu[3][is] + Wmu[3][is]*Zmu[0][is]);
-    residualShear[4][is] = stressTensor[4][is] + P_T[is]*delta_xx - P_L[is]*Zmu[1][is]*Zmu[1][is] - (Wmu[1][is]*Zmu[1][is] + Wmu[1][is]*Zmu[1][is]);
-    residualShear[5][is] = stressTensor[5][is] + P_T[is]*delta_xy - P_L[is]*Zmu[1][is]*Zmu[2][is] - (Wmu[1][is]*Zmu[2][is] + Wmu[2][is]*Zmu[1][is]);
-    residualShear[6][is] = stressTensor[6][is] + P_T[is]*delta_xn - P_L[is]*Zmu[1][is]*Zmu[3][is] - (Wmu[1][is]*Zmu[3][is] + Wmu[3][is]*Zmu[1][is]);
-    residualShear[7][is] = stressTensor[7][is] + P_T[is]*delta_yy - P_L[is]*Zmu[2][is]*Zmu[2][is] - (Wmu[2][is]*Zmu[2][is] + Wmu[2][is]*Zmu[2][is]);
-    residualShear[8][is] = stressTensor[8][is] + P_T[is]*delta_yn - P_L[is]*Zmu[2][is]*Zmu[3][is] - (Wmu[2][is]*Zmu[3][is] + Wmu[3][is]*Zmu[2][is]);
-    residualShear[9][is] = stressTensor[9][is] + P_T[is]*delta_nn - P_L[is]*Zmu[3][is]*Zmu[3][is] - (Wmu[3][is]*Zmu[3][is] + Wmu[3][is]*Zmu[3][is]);
+    residualShear[0][is] = stressTensor[0][is] + P_T[is]*delta_tt - P_L[is]*Zmu[0][is]*Zmu[0][is] - (Wmu[0][is]*Zmu[0][is] + Wmu[0][is]*Zmu[0][is]) - energyDensity[is]*flowVelocity[0][is]*flowVelocity[0][is];
+    residualShear[1][is] = stressTensor[1][is] + P_T[is]*delta_tx - P_L[is]*Zmu[0][is]*Zmu[1][is] - (Wmu[0][is]*Zmu[1][is] + Wmu[1][is]*Zmu[0][is]) - energyDensity[is]*flowVelocity[0][is]*flowVelocity[1][is];
+    residualShear[2][is] = stressTensor[2][is] + P_T[is]*delta_ty - P_L[is]*Zmu[0][is]*Zmu[2][is] - (Wmu[0][is]*Zmu[2][is] + Wmu[2][is]*Zmu[0][is]) - energyDensity[is]*flowVelocity[0][is]*flowVelocity[2][is];
+    residualShear[3][is] = stressTensor[3][is] + P_T[is]*delta_tn - P_L[is]*Zmu[0][is]*Zmu[3][is] - (Wmu[0][is]*Zmu[3][is] + Wmu[3][is]*Zmu[0][is]) - energyDensity[is]*flowVelocity[0][is]*flowVelocity[3][is];
+    residualShear[4][is] = stressTensor[4][is] + P_T[is]*delta_xx - P_L[is]*Zmu[1][is]*Zmu[1][is] - (Wmu[1][is]*Zmu[1][is] + Wmu[1][is]*Zmu[1][is]) - energyDensity[is]*flowVelocity[1][is]*flowVelocity[1][is];
+    residualShear[5][is] = stressTensor[5][is] + P_T[is]*delta_xy - P_L[is]*Zmu[1][is]*Zmu[2][is] - (Wmu[1][is]*Zmu[2][is] + Wmu[2][is]*Zmu[1][is]) - energyDensity[is]*flowVelocity[1][is]*flowVelocity[2][is];
+    residualShear[6][is] = stressTensor[6][is] + P_T[is]*delta_xn - P_L[is]*Zmu[1][is]*Zmu[3][is] - (Wmu[1][is]*Zmu[3][is] + Wmu[3][is]*Zmu[1][is]) - energyDensity[is]*flowVelocity[1][is]*flowVelocity[3][is];
+    residualShear[7][is] = stressTensor[7][is] + P_T[is]*delta_yy - P_L[is]*Zmu[2][is]*Zmu[2][is] - (Wmu[2][is]*Zmu[2][is] + Wmu[2][is]*Zmu[2][is]) - energyDensity[is]*flowVelocity[2][is]*flowVelocity[2][is];
+    residualShear[8][is] = stressTensor[8][is] + P_T[is]*delta_yn - P_L[is]*Zmu[2][is]*Zmu[3][is] - (Wmu[2][is]*Zmu[3][is] + Wmu[3][is]*Zmu[2][is]) - energyDensity[is]*flowVelocity[2][is]*flowVelocity[3][is];
+    residualShear[9][is] = stressTensor[9][is] + P_T[is]*delta_nn - P_L[is]*Zmu[3][is]*Zmu[3][is] - (Wmu[3][is]*Zmu[3][is] + Wmu[3][is]*Zmu[3][is]) - energyDensity[is]*flowVelocity[3][is]*flowVelocity[3][is];
   }
 }
 
