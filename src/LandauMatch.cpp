@@ -9,8 +9,10 @@
 #include <gsl/gsl_sort_vector.h>
 //#include <math.h>
 #include "Parameter.h"
+#include "AnisotropicDistributionFunctions.cpp"
+
 #define PI 3.141592654f
-#define REGULATE 1 // 1 to regulate flow in dilute regions
+#define REGULATE 0 // 1 to regulate flow in dilute regions
 #define GAMMA_MAX 10.0
 
 void calculateHypertrigTable(float ****hypertrigTable, parameters params)
@@ -363,6 +365,187 @@ void solveEigenSystem(float **stressTensor, float *energyDensity, float **flowVe
   }
 
 } //solveEigenSystem()
+
+//VAH matching functions
+
+void calculateZmu(float **flowVelocity, float **Zmu, parameters params)
+{
+  int DIM = params.DIM;
+  float TAU = params.TAU;
+  #pragma omp parallel for
+  for (int is = 0; is < DIM; is++)
+  {
+    float u0 = sqrt( 1 + flowVelocity[1][is]*flowVelocity[1][is] + flowVelocity[2][is]*flowVelocity[2][is] );
+    float sinhL = TAU * flowVelocity[3][is] / u0;
+    float coshL = flowVelocity[0][is] / u0;
+
+    Zmu[0][is] = sinhL;
+    Zmu[3][is] = coshL / TAU;
+  }
+}
+
+void calculateP_L(float **stressTensor, float **Zmu, float *P_L, parameters params)
+{
+  int DIM = params.DIM;
+  float TAU = params.TAU;
+  float tau2 = TAU * TAU;
+  #pragma omp parallel for
+  for (int is = 0; is < DIM; is++)
+  {
+    P_L[is] = ( Zmu[0][is]*Zmu[0][is]*stressTensor[0][is] + tau2*tau2*Zmu[3][is]*Zmu[3][is]*stressTensor[9][is] - 2.0*tau2*Zmu[0][is]*Zmu[3][is]*stressTensor[3][is] );
+  }
+}
+
+void calculateWmu(float **stressTensor, float **flowVelocity, float **Zmu, float **Wmu, parameters params)
+{
+  int DIM = params.DIM;
+  float TAU = params.TAU;
+  float tau2 = TAU * TAU;
+  #pragma omp parallel for
+  for (int is = 0; is < DIM; is++)
+  {
+    //delta_T _\mu\nu covariant indices
+    float u_t = flowVelocity[0][is];
+    float u_x = -flowVelocity[1][is];
+    float u_y = -flowVelocity[2][is];
+    float u_n = -tau2*flowVelocity[3][is];
+    float Z_t = Zmu[0][is];
+    float Z_n = -tau2*Zmu[0][is];
+    float delta_tt = 1 - u_t*u_t + Z_t*Z_t;
+    float delta_tx = -u_t*u_x;
+    float delta_ty = -u_t*u_y;
+    float delta_tn = -u_t*u_n + Z_t*Z_n;
+    float delta_xx = -1 - u_x*u_x;
+    float delta_xy = -u_x*u_y;
+    float delta_xn = -u_x*u_n;
+    float delta_yy = -1 - u_y*u_y;
+    float delta_yn = -u_y*u_n;
+    float delta_nn = -tau2 - u_n*u_n + Z_n*Z_n;
+
+    //stress tensor with CONTRAVARIANT indices
+    float Ttt = stressTensor[0][is];
+    float Ttx = stressTensor[1][is];
+    float Tty = stressTensor[2][is];
+    float Ttn = stressTensor[3][is];
+    float Txx = stressTensor[4][is];
+    float Txy = stressTensor[5][is];
+    float Txn = stressTensor[6][is];
+    float Tyy = stressTensor[7][is];
+    float Tyn = stressTensor[8][is];
+    float Tnn = stressTensor[9][is];
+
+    //first compute the covariant W_\mu
+    float W_t = -Z_t*( delta_tt*Ttt + delta_tx*Ttx + delta_ty*Tty + delta_tn*Ttn ) - Z_n*(delta_tt*Ttn + delta_tx*Txn + delta_ty*Tyn + delta_tn*Tnn);
+    float W_x = -Z_t*( delta_tx*Ttt + delta_xx*Ttx + delta_xy*Tty + delta_xn*Ttn ) - Z_n*(delta_tx*Ttn + delta_xx*Txn + delta_xy*Tyn + delta_xn*Tnn);
+    float W_y = -Z_t*( delta_ty*Ttt + delta_xy*Ttx + delta_yy*Tty + delta_yn*Ttn ) - Z_n*(delta_ty*Ttn + delta_xy*Txn + delta_yy*Tyn + delta_yn*Tnn);
+    float W_n = -Z_t*( delta_tn*Ttt + delta_xn*Ttx + delta_yn*Tty + delta_nn*Ttn ) - Z_n*(delta_tn*Ttn + delta_xn*Txn + delta_yn*Tyn + delta_nn*Tnn);
+
+    //now raise the index to get contravariant W^\mu
+    Wmu[0][is] = W_t;
+    Wmu[1][is] = -W_x;
+    Wmu[2][is] = -W_y;
+    Wmu[3][is] = (-1.0 / tau2) * W_n;
+  }
+}
+
+void calculateP_T(float *energyDensity, float *pressure, float *P_L, float *P_T, parameters params)
+{
+  int DIM = params.DIM;
+  #pragma omp parallel for
+  for (int is = 0; is < DIM; is++)
+  {
+    float e = energyDensity[is];
+    float p = pressure[is];
+    float pl = P_L[is];
+    P_T[is] = transversePressureHat(e, p, pl);
+  }
+}
+
+void calculateResidualBulk(float **stressTensor, float **flowVelocity, float **Zmu, float *P_T, float *residualBulk, parameters params)
+{
+  int DIM = params.DIM;
+  float TAU = params.TAU;
+  float tau2 = TAU * TAU;
+  #pragma omp parallel for
+  for (int is = 0; is < DIM; is++)
+  {
+    //delta_T _\mu\nu COVARIANT indices
+    float u_t = flowVelocity[0][is];
+    float u_x = -flowVelocity[1][is];
+    float u_y = -flowVelocity[2][is];
+    float u_n = -tau2*flowVelocity[3][is];
+    float Z_t = Zmu[0][is];
+    float Z_n = -tau2*Zmu[0][is];
+    float delta_tt = 1 - u_t*u_t + Z_t*Z_t;
+    float delta_tx = -u_t*u_x;
+    float delta_ty = -u_t*u_y;
+    float delta_tn = -u_t*u_n + Z_t*Z_n;
+    float delta_xx = -1 - u_x*u_x;
+    float delta_xy = -u_x*u_y;
+    float delta_xn = -u_x*u_n;
+    float delta_yy = -1 - u_y*u_y;
+    float delta_yn = -u_y*u_n;
+    float delta_nn = -tau2 - u_n*u_n + Z_n*Z_n;
+
+    //stress tensor with CONTRAVARIANT indices
+    float Ttt = stressTensor[0][is];
+    float Ttx = stressTensor[1][is];
+    float Tty = stressTensor[2][is];
+    float Ttn = stressTensor[3][is];
+    float Txx = stressTensor[4][is];
+    float Txy = stressTensor[5][is];
+    float Txn = stressTensor[6][is];
+    float Tyy = stressTensor[7][is];
+    float Tyn = stressTensor[8][is];
+    float Tnn = stressTensor[9][is];
+
+    float delta_munu_T_munu = delta_tt*Ttt + 2.0*(delta_tx*Ttx + delta_ty*Tty) + 2.0*(delta_tn*Ttn + delta_xn*Txn + delta_yn*Tyn) + 2.0*(delta_xy*Txy) + delta_xx*Txx + delta_yy*Tyy + delta_nn*Tnn;
+
+    residualBulk[is] = (2.0/3.0) * ( (-1.0/2.0) * delta_munu_T_munu - P_T[is]);
+  }
+}
+
+void calculateResidualShear(float **stressTensor, float *energyDensity, float **flowVelocity, float **Zmu, float *P_L, float *P_T, float **Wmu, float **residualShear, parameters params)
+{
+  int DIM = params.DIM;
+  float TAU = params.TAU;
+  float tau2 = TAU * TAU;
+  #pragma omp parallel for
+  for (int is = 0; is < DIM; is++)
+  {
+    //delta_T ^\mu\nu CONTRAVARIANT indices
+    float u_t = flowVelocity[0][is];
+    float u_x = flowVelocity[1][is];
+    float u_y = flowVelocity[2][is];
+    float u_n = flowVelocity[3][is];
+    float Z_t = Zmu[0][is];
+    float Z_n = Zmu[0][is];
+    float delta_tt = 1 - u_t*u_t + Z_t*Z_t;
+    float delta_tx = -u_t*u_x;
+    float delta_ty = -u_t*u_y;
+    float delta_tn = -u_t*u_n + Z_t*Z_n;
+    float delta_xx = -1 - u_x*u_x;
+    float delta_xy = -u_x*u_y;
+    float delta_xn = -u_x*u_n;
+    float delta_yy = -1 - u_y*u_y;
+    float delta_yn = -u_y*u_n;
+    float delta_nn = (-1.0/tau2) - u_n*u_n + Z_n*Z_n;
+
+    residualShear[0][is] = stressTensor[0][is] + P_T[is]*delta_tt - P_L[is]*Zmu[0][is]*Zmu[0][is] - (Wmu[0][is]*Zmu[0][is] + Wmu[0][is]*Zmu[0][is]);
+    residualShear[1][is] = stressTensor[1][is] + P_T[is]*delta_tx - P_L[is]*Zmu[0][is]*Zmu[1][is] - (Wmu[0][is]*Zmu[1][is] + Wmu[1][is]*Zmu[0][is]);
+    residualShear[2][is] = stressTensor[2][is] + P_T[is]*delta_ty - P_L[is]*Zmu[0][is]*Zmu[2][is] - (Wmu[0][is]*Zmu[2][is] + Wmu[2][is]*Zmu[0][is]);
+    residualShear[3][is] = stressTensor[3][is] + P_T[is]*delta_tn - P_L[is]*Zmu[0][is]*Zmu[3][is] - (Wmu[0][is]*Zmu[3][is] + Wmu[3][is]*Zmu[0][is]);
+    residualShear[4][is] = stressTensor[4][is] + P_T[is]*delta_xx - P_L[is]*Zmu[1][is]*Zmu[1][is] - (Wmu[1][is]*Zmu[1][is] + Wmu[1][is]*Zmu[1][is]);
+    residualShear[5][is] = stressTensor[5][is] + P_T[is]*delta_xy - P_L[is]*Zmu[1][is]*Zmu[2][is] - (Wmu[1][is]*Zmu[2][is] + Wmu[2][is]*Zmu[1][is]);
+    residualShear[6][is] = stressTensor[6][is] + P_T[is]*delta_xn - P_L[is]*Zmu[1][is]*Zmu[3][is] - (Wmu[1][is]*Zmu[3][is] + Wmu[3][is]*Zmu[1][is]);
+    residualShear[7][is] = stressTensor[7][is] + P_T[is]*delta_yy - P_L[is]*Zmu[2][is]*Zmu[2][is] - (Wmu[2][is]*Zmu[2][is] + Wmu[2][is]*Zmu[2][is]);
+    residualShear[8][is] = stressTensor[8][is] + P_T[is]*delta_yn - P_L[is]*Zmu[2][is]*Zmu[3][is] - (Wmu[2][is]*Zmu[3][is] + Wmu[3][is]*Zmu[2][is]);
+    residualShear[9][is] = stressTensor[9][is] + P_T[is]*delta_nn - P_L[is]*Zmu[3][is]*Zmu[3][is] - (Wmu[3][is]*Zmu[3][is] + Wmu[3][is]*Zmu[3][is]);
+  }
+}
+
+//VAH matching functions
+
 void calculateBulkPressure(float **stressTensor, float *energyDensity, float *pressure, float *bulkPressure, parameters params)
 {
   int DIM = params.DIM;

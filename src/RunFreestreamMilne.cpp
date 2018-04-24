@@ -1,4 +1,4 @@
-// freestream-milne
+// freestream-milne-VAH
 
 //#include "Parameter.h"
 #include "FreeStream.cpp"
@@ -296,6 +296,10 @@ int main(void)
   float *energyDensity = NULL;
   energyDensity = (float *)calloc(params.DIM, sizeof(float));
 
+  //the thermal pressure
+  float *pressure = NULL;
+  pressure = (float *)calloc(params.DIM, sizeof(float));
+
   //the baryon density
   float *baryonDensity = NULL;
   if(params.BARYON) baryonDensity = (float *)calloc(params.DIM, sizeof(float));
@@ -304,17 +308,31 @@ int main(void)
   float **flowVelocity = NULL;
   flowVelocity = calloc2dArray(flowVelocity, 4, params.DIM);
 
-  //the pressure
-  float *pressure = NULL;
-  pressure = (float *)calloc(params.DIM, sizeof(float));
+  //the basis vector Z^(\mu)
+  float **Zmu = NULL;
+  Zmu = calloc2dArray(Zmu, 4, params.DIM);
 
-  //the bulk pressure Pi
-  float *bulkPressure = NULL;
-  bulkPressure = (float *)calloc(params.DIM, sizeof(float));
+  //the longitudinal pressure
+  float *P_L = NULL;
+  P_L = (float *)calloc(params.DIM, sizeof(float));
 
-  //the shear stress tensor
-  float **shearTensor = NULL;
-  shearTensor = calloc2dArray(shearTensor, 10, params.DIM); //calculate 10 components, can check tracelessness/orthogonality for accuracy
+  //the transverse pressure
+  float *P_T = NULL;
+  P_T = (float *)calloc(params.DIM, sizeof(float));
+
+  //the residual bulk pressure Pi~
+  float *residualBulk = NULL;
+  residualBulk = (float *)calloc(params.DIM, sizeof(float));
+
+  //the residual shear stress tensor pi_(perp)^\mu\nu
+  float **residualShear = NULL;
+  residualShear = calloc2dArray(residualShear, 10, params.DIM); //calculate 10 components
+
+  //the longitudinal momentum diffusion current W_(perp,z)^\mu
+  float **Wmu = NULL;
+  Wmu = calloc2dArray(Wmu, 4, params.DIM);
+
+
 
   //the baryon diffusion current vector
   float **baryonDiffusion = NULL;
@@ -345,11 +363,31 @@ int main(void)
     #endif
     if (PRINT_SCREEN) printf("calculating baryon density and diffusion current took %f seconds\n", sec);
   }
-
+  //calculate the thermal pressure p using EoS
   calculatePressure(energyDensity, baryonDensity, pressure, params);
+
+  //calculate the basis vector Z^\mu
+  calculateZmu(flowVelocity, Zmu, params);
+
+  //calculate the longitudinal pressure
+  calculateP_L(stressTensor, Zmu, P_L, params);
+
+  //calculate the longitudinal momentum diffusion current
+  calculateWmu(stressTensor, flowVelocity, Zmu, Wmu, params);
+
+  //calculate the transverse pressure
+  calculateP_T(energyDensity, pressure, P_L, P_T, params);
+
+  //calculate the residual bulk pressure
+  calculateResidualBulk(stressTensor, flowVelocity, Zmu, P_T, residualBulk, params);
+
+  //calculate the residual shear stress tensor pi_(perp)^\mu\nu
+  calculateResidualShear(stressTensor, energyDensity, flowVelocity, Zmu, P_L, P_T, Wmu, residualShear, params);
+
+  /*
   calculateBulkPressure(stressTensor, energyDensity, pressure, bulkPressure, params);
   calculateShearViscTensor(stressTensor, energyDensity, flowVelocity, pressure, bulkPressure, shearTensor, params);
-
+  */
   /////////////////////////////BEGIN TESTING FOR JETSCAPE//////////////////////////////
   if (TEST_INTERPOL)
   {
@@ -371,10 +409,14 @@ int main(void)
 
   writeScalarToFile(energyDensity, "e", params);
   writeScalarToFile(pressure, "p", params);
-  writeScalarToFile(bulkPressure, "bulk", params);
+  writeScalarToFile(residualBulk, "residualBulk", params);
+  writeScalarToFile(P_L, "pL", params);
+  writeScalarToFile(P_T, "pT", params);
   writeScalarToFileProjection(energyDensity, "e_projection", params);
   writeScalarToFileProjection(pressure, "p_projection", params);
-  writeScalarToFileProjection(bulkPressure, "bulk_projection", params);
+  writeScalarToFileProjection(residualBulk, "residualBulk_projection", params);
+  writeScalarToFileProjection(P_L, "pL_projection", params);
+  writeScalarToFileProjection(P_T, "pT_projection", params);
 
   writeVectorToFile(flowVelocity, "ut", 0, params);
   writeVectorToFile(flowVelocity, "ux", 1, params);
@@ -387,27 +429,37 @@ int main(void)
   writeVectorToFileProjection(flowVelocity, "un_projection", 3, params);
 
 
-  writeVectorToFile(shearTensor, "pitt", 0, params);
-  writeVectorToFile(shearTensor, "pitx", 1, params);
-  writeVectorToFile(shearTensor, "pity", 2, params);
-  writeVectorToFile(shearTensor, "pitn", 3, params);
-  writeVectorToFile(shearTensor, "pixx", 4, params);
-  writeVectorToFile(shearTensor, "pixy", 5, params);
-  writeVectorToFile(shearTensor, "pixn", 6, params);
-  writeVectorToFile(shearTensor, "piyy", 7, params);
-  writeVectorToFile(shearTensor, "piyn", 8, params);
-  writeVectorToFile(shearTensor, "pinn", 9, params);
+  writeVectorToFile(residualShear, "residual_pitt", 0, params);
+  writeVectorToFile(residualShear, "residual_pitx", 1, params);
+  writeVectorToFile(residualShear, "residual_pity", 2, params);
+  writeVectorToFile(residualShear, "residual_pitn", 3, params);
+  writeVectorToFile(residualShear, "residual_pixx", 4, params);
+  writeVectorToFile(residualShear, "residual_pixy", 5, params);
+  writeVectorToFile(residualShear, "residual_pixn", 6, params);
+  writeVectorToFile(residualShear, "residual_piyy", 7, params);
+  writeVectorToFile(residualShear, "residual_piyn", 8, params);
+  writeVectorToFile(residualShear, "residual_pinn", 9, params);
 
-  writeVectorToFileProjection(shearTensor, "pitt_projection", 0, params);
-  writeVectorToFileProjection(shearTensor, "pitx_projection", 1, params);
-  writeVectorToFileProjection(shearTensor, "pity_projection", 2, params);
-  writeVectorToFileProjection(shearTensor, "pitn_projection", 3, params);
-  writeVectorToFileProjection(shearTensor, "pixx_projection", 4, params);
-  writeVectorToFileProjection(shearTensor, "pixy_projection", 5, params);
-  writeVectorToFileProjection(shearTensor, "pixn_projection", 6, params);
-  writeVectorToFileProjection(shearTensor, "piyy_projection", 7, params);
-  writeVectorToFileProjection(shearTensor, "piyn_projection", 8, params);
-  writeVectorToFileProjection(shearTensor, "pinn_projection", 9, params);
+  writeVectorToFileProjection(residualShear, "residual_pitt_projection", 0, params);
+  writeVectorToFileProjection(residualShear, "residual_pitx_projection", 1, params);
+  writeVectorToFileProjection(residualShear, "residual_pity_projection", 2, params);
+  writeVectorToFileProjection(residualShear, "residual_pitn_projection", 3, params);
+  writeVectorToFileProjection(residualShear, "residual_pixx_projection", 4, params);
+  writeVectorToFileProjection(residualShear, "residual_pixy_projection", 5, params);
+  writeVectorToFileProjection(residualShear, "residual_pixn_projection", 6, params);
+  writeVectorToFileProjection(residualShear, "residual_piyy_projection", 7, params);
+  writeVectorToFileProjection(residualShear, "residual_piyn_projection", 8, params);
+  writeVectorToFileProjection(residualShear, "residual_pinn_projection", 9, params);
+
+  writeVectorToFile(Wmu, "W_perp_t", 0, params);
+  writeVectorToFile(Wmu, "W_perp_x", 1, params);
+  writeVectorToFile(Wmu, "W_perp_y", 2, params);
+  writeVectorToFile(Wmu, "W_perp_n", 3, params);
+
+  writeVectorToFileProjection(Wmu, "W_perp_t_projection", 0, params);
+  writeVectorToFileProjection(Wmu, "W_perp_x_projection", 1, params);
+  writeVectorToFileProjection(Wmu, "W_perp_y_projection", 2, params);
+  writeVectorToFileProjection(Wmu, "W_perp_n_projection", 3, params);
 
   if (params.BARYON)
   {
@@ -424,8 +476,12 @@ int main(void)
   free(energyDensity);
   free2dArray(flowVelocity, 4);
   free(pressure);
-  free(bulkPressure);
-  free2dArray(shearTensor, 10);
+  free(P_L);
+  free(P_T);
+  free(residualBulk);
+  free2dArray(residualShear, 10);
+  free2dArray(Wmu, 4);
+  free2dArray(Zmu, 4);
 
   if (params.BARYON)
   {
