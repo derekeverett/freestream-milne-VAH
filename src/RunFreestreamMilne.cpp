@@ -5,6 +5,7 @@
 #include "InitialConditions.cpp"
 #include "LandauMatch.cpp"
 #include "EquationOfState.cpp"
+#include "HydroValidity.cpp"
 #include "Memory.cpp"
 #include "FileIO.cpp"
 #include <stdlib.h>
@@ -186,15 +187,6 @@ int main(void)
     writeScalarToFileProjection(scaledEnergyDensity, "scaled_e_projection", params);
   }
   /////////////////////////////END TESTING FOR JETSCAPE//////////////////////////////
-
-  //test regulating the initial profile in dilute regions
-  /*
-  for (int is = 0; is < params.DIM; is++)
-    {
-      if ( initialEnergyDensity[is] < 1.0e-10 ) initialEnergyDensity[is] = 0.0;
-    }
-  */
-  //test regulating initial profile in dilute regions
 
 
   //convert the energy density profile into the initial density profile to be streamed and free memory
@@ -403,6 +395,19 @@ int main(void)
     writeScalarToFileProjection(scaledEnergyDensity, "tau_interpolated_e_projection", params);
   }
   /////////////////////////////END TESTING FOR JETSCAPE//////////////////////////////
+
+  //////////////////////////////////HYDRO VALIDITY//////////////////////////////////
+  //residual bulk inv reynolds #
+  float *R_Pi_Inv = NULL;
+  R_Pi_Inv = (float *)calloc(params.DIM, sizeof(float));
+  //residual shear inv reynolds #
+  float *R_pimunu_Inv = NULL;
+  R_pimunu_Inv = (float *)calloc(params.DIM, sizeof(float));
+  calculateBulkInvReynolds(P_T, residualBulk, R_Pi_Inv, params);
+  calculateShearInvReynolds(energyDensity, P_L, P_T, residualShear, R_pimunu_Inv, params);
+  writeScalarToFileProjection(R_Pi_Inv, "R_Pi_Inv_projection", params);
+  writeScalarToFileProjection(R_pimunu_Inv, "R_pimunu_Inv_projection", params);
+  //////////////////////////////////HYDRO VALIDITY//////////////////////////////////
 
   if (PRINT_SCREEN) printf("writing hydro variables to file\n");
 
